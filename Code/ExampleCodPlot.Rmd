@@ -1,0 +1,79 @@
+---
+title: "RMarkdownExample"
+author: "Andrew Allyn"
+date: "5/9/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+This is a short RMarkdown document to try to demonstrate a workflow that:
+1. Uses the power of Git and GitHub for version controlled collaborative coding
+2. Uses the power of Box for file backup and sharing files between lab members
+3. Uses RMarkdown to nicely blend code, text and figures to create temporary results files that can be easily reviewed by lab members
+
+## Workflow steps
+1. I created a new repo on GitHub.com called "LabVingettes"
+2. I cloned the repository, copying the https link, and then opened up a new version controlled RStudio project *importantly when I did this I made sure to create the new project within the GitHub folder in my personal box folder.* Though, this could have just as easily been done within the lab folder on Box. 
+3. On my desktop, I then created a few subfolders within the new GitHub project folder ("Code", "Data")
+4. I edited the .gitignore file to include the Data folder
+5. I wrote this document
+6. I stage, committed and push this RMarkdown code
+
+## Start data exploration
+A few preliminary things to start. First, we are going to source some functions that are in the ExampleSharedFunctions folder. Importantly, this folder is currenty in my personal directory. BUT the idea would be that this folder would exist in the Research folder. Given that, only the very beginning of the file path should change depending on the operating system. I imagine this would need to be at the beginning of all codes? *Is there a better way to do this??*
+```{r}
+# Detect the operating system
+os.use<- .Platform$OS.type
+
+# Set path to shared folders
+shared.path<- switch(os.use, 
+                     "unix" = "~/Box/Andrew Allyn/",
+                     "windows" = "C:/Box/Andrew Allyn/")
+
+# Source functions -- this is a little clumsy with the output text, but works
+shared.funcs<- list.files(paste(shared.path, "ExampleSharedFunctions", sep = ""), full.names = TRUE)
+sapply(shared.funcs, source)
+
+# Load libraries
+libraries.needed<- c("tidyverse", "here", "sf", "viridis")
+library_check(libraries.needed)
+```
+
+Now, let's see about reading in some example data (NOAA NEFSC bottom trawl survey data for Altantic cod), which is stored within the project data folder. Maybe using the here library?
+```{r}
+# Reading in cod data -- would want to try this with someone else's copy of this folder?
+cod.dat<- read_csv(here("Data", "NOAANEFSCBottomTrawl_CodObs.csv"))
+summary(cod.dat)
+
+# Let's also read in the Gulf of Maine shape file, which is located in a different folder
+# Option one...
+gom<- st_read(paste(shared.path, "ExampleSharedData/Shapefiles/GoM_sf.shp", sep = ""))
+ggplot(gom) +
+  geom_sf()
+
+# That worked okay -- I don't think we can use the "here" piece because "here" is going to be looking inside this RProject and its corresponding folders. The ExampleSharedData folder, however, will be located outside this RProject.
+```
+
+Alright, so seemingly we are able to read in some data that is within the RProject Data folder and we are also able to read in a shared shapefile of the Gulf of Maine. Next, let's just make a quick plot and save the figure to the Temp Results folder in this project...
+```{r}
+# Add an "early" and "late" indicator variable to the cod data
+cod.dat$Period<- ifelse(cod.dat$EST_YEAR <= 2004, "Early", "Late")
+
+# Plot
+cod.plot<- ggplot() +
+  geom_sf(data = gom) +
+  geom_point(data = subset(cod.dat, BIOMASS.MOD > 0), aes(x = DECDEG_BEGLON, y = DECDEG_BEGLAT, size = BIOMASS.MOD, color = BIOMASS.MOD)) +
+  scale_size_continuous(range=c(1,12)) +
+  scale_color_viridis() +
+  facet_wrap(~Period)
+ggsave(here("Temp Results", "ExampleCodBiomassPlot.jpg"), cod.plot)
+
+# Print it to Markdown file
+cod.plot
+```
+
+Let's see how that all worked (or didn't...)
