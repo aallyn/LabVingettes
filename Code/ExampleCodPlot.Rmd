@@ -12,16 +12,18 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Introduction
 This is a short RMarkdown document to try to demonstrate a workflow that:
 1. Uses the power of Git and GitHub for version controlled collaborative coding
-2. Uses the power of Box for file backup and sharing files between lab members
+2. Uses the power of Box for file backup and sharing files between lab members and the research department
 3. Uses RMarkdown to nicely blend code, text and figures to create temporary results files that can be easily reviewed by lab members
 
 ## Workflow steps
 1. I created a new repo on GitHub.com called "LabVingettes"
 2. I cloned the repository, copying the https link, and then opened up a new version controlled RStudio project *importantly when I did this I made sure to create the new project within the GitHub folder in my personal box folder.* Though, this could have just as easily been done within the lab folder on Box. 
-3. On my desktop, I then created a few subfolders within the new GitHub project folder ("Code", "Data")
-4. I edited the .gitignore file to include the Data folder
+3. On my desktop, I then created a few subfolders within the new GitHub project folder ("Code", "Data", "Temp Results")
+4. I edited the .gitignore file to include the Data folder and the Temp Results folder
 5. I wrote this document
-6. I stage, committed and push this RMarkdown code
+6. I staged, committed and pushed this RMarkdown code to GitHub
+7. I opened a new script to render this RMarkdown code ("ExampleCodPlot_Render.R"), allowing me to set the output directory for the rendered file (Temp Results) that is different from the folder that this RMarkdown file exists (Code)
+8. I staged, commited and pushed the render code to GitHub
 
 ## Start data exploration
 A few preliminary things to start. First, we are going to source some functions that are in the ExampleSharedFunctions folder. Importantly, this folder is currenty in my personal directory. BUT the idea would be that this folder would exist in the Research folder. Given that, only the very beginning of the file path should change depending on the operating system. I imagine this would need to be at the beginning of all codes? *Is there a better way to do this??*
