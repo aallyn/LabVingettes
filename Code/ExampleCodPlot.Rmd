@@ -26,53 +26,86 @@ This is a short RMarkdown document to try to demonstrate a workflow that:
 8. I staged, commited and pushed the render code to GitHub
 
 ## Start data exploration
-A few preliminary things to start. First, we are going to source some functions that are in the ExampleSharedFunctions folder. Importantly, this folder is currenty in my personal directory. BUT the idea would be that this folder would exist in the Research folder. Given that, only the very beginning of the file path should change depending on the operating system. I imagine this would need to be at the beginning of all codes? *Is there a better way to do this??*
+A few preliminary things to start. First, we are going to source some functions that are in the ExampleSharedFunctions and some data in the ExampleSharedData folder. Importantly, this folder is currenty in my personal directory **and for now, you will need to update the "user name" in the code chunk below**. The idea would be that these folders would exist in the Research folder (e.g., Box-Research-Data or Box-Research-Functions). Given that, only the very beginning of the file path should change depending on the operating system. I imagine this would need to be at the beginning of all codes? *Is there a better way to do this??*
 ```{r}
 # Detect the operating system
 os.use<- .Platform$OS.type
 
 # Set path to shared folders
+user.name<- "Andrew Allyn/" 
 shared.path<- switch(os.use, 
-                     "unix" = "~/Box/Andrew Allyn/",
-                     "windows" = "C:/Box/Andrew Allyn/")
+                     "unix" = paste("~/Box/", user.name, sep = ""),
+                     "windows" = paste("C:/Box/", user.name, sep = ""))
 
 # Source functions -- this is a little clumsy with the output text, but works
 shared.funcs<- list.files(paste(shared.path, "ExampleSharedFunctions", sep = ""), full.names = TRUE)
 sapply(shared.funcs, source)
 
 # Load libraries
-libraries.needed<- c("tidyverse", "here", "sf", "viridis")
+libraries.needed<- c("tidyverse", "here", "sf", "viridis", "SDMTools")
 library_check(libraries.needed)
 ```
 
-Now, let's see about reading in some example data (NOAA NEFSC bottom trawl survey data for Altantic cod), which is stored within the project data folder. Maybe using the here library?
+Now, let's see about reading in some example data (NOAA NEFSC bottom trawl survey data for Altantic cod), which is stored within the project data folder. Maybe using the here library? And then reading in a shapefile, which would be located in some shared folder.
 ```{r}
 # Reading in cod data -- would want to try this with someone else's copy of this folder?
 cod.dat<- read_csv(here("Data", "NOAANEFSCBottomTrawl_CodObs.csv"))
 summary(cod.dat)
 
-# Let's also read in the Gulf of Maine shape file, which is located in a different folder
+# Let's also read in the NELME shapefile, which is located in a different folder
 # Option one...
-gom<- st_read(paste(shared.path, "ExampleSharedData/Shapefiles/GoM_sf.shp", sep = ""))
-ggplot(gom) +
-  geom_sf()
+nelme<- st_read(paste(shared.path, "ExampleSharedData/Shapefiles/NELME_sf.shp", sep = ""))
+ggplot() +
+  geom_sf(data = st_simplify(nelme, dTolerance = 0.001))
 
-# That worked okay -- I don't think we can use the "here" piece because "here" is going to be looking inside this RProject and its corresponding folders. The ExampleSharedData folder, however, will be located outside this RProject.
+# That worked -- I don't think we can use the "here" piece because "here" is going to be looking inside this RProject and its corresponding folders. The ExampleSharedData folder, however, will be located outside this RProject.
 ```
 
-Alright, so seemingly we are able to read in some data that is within the RProject Data folder and we are also able to read in a shared shapefile of the Gulf of Maine. Next, let's just make a quick plot and save the figure to the Temp Results folder in this project...
+Alright, so seemingly we are able to read in some data that is within the RProject Data folder and we are also able to read in a shared shapefile of the Northeast Large Marine Ecosystem. Next, let's make a quick plot of Cod Center of Gravity and save the figure to the Temp Results folder in this project...
 ```{r}
-# Add an "early" and "late" indicator variable to the cod data
-cod.dat$Period<- ifelse(cod.dat$EST_YEAR <= 2004, "Early", "Late")
+# The center of gravity will be calculated for each year and season independently. So, looking at a replicated process and either loops OR using new tidyverse functions to nest the data and then map a function to each row of the nested data. 
 
-# Plot
-cod.plot<- ggplot() +
-  geom_sf(data = gom) +
-  geom_point(data = subset(cod.dat, BIOMASS.MOD > 0), aes(x = DECDEG_BEGLON, y = DECDEG_BEGLAT, size = BIOMASS.MOD, color = BIOMASS.MOD)) +
-  scale_size_continuous(range=c(1,12)) +
+# Define season based on survey month
+cod.dat$SEASON<- ifelse(cod.dat$EST_MONTH >= 2 & cod.dat$EST_MONTH <= 5, "SPRING", "FALL")
+                        
+# Nested dataframe by year and season
+cod.nest<- cod.dat %>%
+  group_by(., EST_YEAR, SEASON) %>%
+  nest(., .key = "ObsData")
+
+# Check it out -- all the data for a given year and season is collapsed and lives in the "ObsData" column
+cod.nest 
+
+# With that set up, let's write a little function hat uses each row of the ObsData to calculate the center of gravity (using SDMTools COGravity function). 
+cog_map_func<- function(df){
+  df.temp<- df %>%
+    drop_na(DECDEG_BEGLON, DECDEG_BEGLAT, BIOMASS.MOD)
+  cog.temp<- COGravity(x = df.temp$DECDEG_BEGLON, y = df.temp$DECDEG_BEGLAT, z = df.temp$BIOMASS.MOD)
+  cog.out<- data.frame("Long" = cog.temp[1], "Lat" = cog.temp[3])
+  return(cog.out)
+}
+
+# Now, map this function to each of the ObsData rows, creating a new COG output column
+cod.nest<- cod.nest %>%
+  mutate(., "COG" = map(ObsData, cog_map_func))
+
+# Alright, now if we have a dataset with EST_YEAR, SEASON, COGx and COGy, we might be able to look at how COG has changed over time...
+cod.plot.dat<- cod.nest %>%
+  dplyr::select(., EST_YEAR, SEASON, COG) %>%
+  unnest()
+
+# Plot, gradient applied to year and faceted by season. For some reason, ggplot isn't liking the geom_sf and then adding points...
+nelme.poly<- fortify(as(st_simplify(nelme, dTolerance = 0.001), "Spatial"))
+cod.cog.plot<- ggplot() +
+  geom_polygon(data = nelme.poly, aes(x = long, y = lat, group = group), color = "black", fill = NA) +
+  geom_point(data = cod.plot.dat, aes(x = Long, y = Lat, color = EST_YEAR), alpha = 0.5) +
   scale_color_viridis() +
-  facet_wrap(~Period)
-ggsave(here("Temp Results", "ExampleCodBiomassPlot.jpg"), cod.plot)
+  theme_bw() +
+  coord_map() +
+  facet_wrap(~SEASON)
+
+# Save it as a jpg and print it to the Markdown file
+ggsave(here("Temp Results", "ExampleCodCOGPlot.jpg"), cod.cog.plot)
 
 # Print it to Markdown file
 cod.plot
