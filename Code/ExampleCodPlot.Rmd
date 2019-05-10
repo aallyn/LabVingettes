@@ -33,9 +33,10 @@ os.use<- .Platform$OS.type
 
 # Set path to shared folders
 user.name<- "Andrew Allyn/" 
+computer.name<- "" # Needed for PC users
 shared.path<- switch(os.use, 
                      "unix" = paste("~/Box/", user.name, sep = ""),
-                     "windows" = paste("C:/Box/", user.name, sep = ""))
+                     "windows" = paste("C:/Users/", computer.name, "/Box/", user.name, sep = ""))
 
 # Source functions -- this is a little clumsy with the output text, but works
 shared.funcs<- list.files(paste(shared.path, "ExampleSharedFunctions", sep = ""), full.names = TRUE)
