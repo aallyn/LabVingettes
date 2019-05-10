@@ -108,7 +108,7 @@ cod.cog.plot<- ggplot() +
 ggsave(here("Temp Results", "ExampleCodCOGPlot.jpg"), cod.cog.plot)
 
 # Print it to Markdown file
-cod.plot
+cod.cog.plot
 ```
 
 Let's see how that all worked (or didn't...)
