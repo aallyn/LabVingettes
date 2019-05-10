@@ -15,15 +15,17 @@ This is a short RMarkdown document to try to demonstrate a workflow that:
 2. Uses the power of Box for file backup and sharing files between lab members and the research department
 3. Uses RMarkdown to nicely blend code, text and figures to create temporary results files that can be easily reviewed by lab members
 
-## Workflow steps
-1. I created a new repo on GitHub.com called "LabVingettes"
-2. I cloned the repository, copying the https link, and then opened up a new version controlled RStudio project *importantly when I did this I made sure to create the new project within the GitHub folder in my personal box folder.* Though, this could have just as easily been done within the lab folder on Box. 
-3. On my desktop, I then created a few subfolders within the new GitHub project folder ("Code", "Data", "Temp Results")
-4. I edited the .gitignore file to include the Data folder and the Temp Results folder
-5. I wrote this document
-6. I staged, committed and pushed this RMarkdown code to GitHub
-7. I opened a new script to render this RMarkdown code ("ExampleCodPlot_Render.R"), allowing me to set the output directory for the rendered file (Temp Results) that is different from the folder that this RMarkdown file exists (Code)
-8. I staged, commited and pushed the render code to GitHub
+## Workflow steps -- Your own project
+1. I added some new folders on Box within my personal folder ("ExampleSharedData", "ExampleSharedFunctions", and "GitHub"). This was necessary since there isn't currently a Research Folder that would have "Data" and "Functions"
+1. I created a new repo on GitHub.com called "LabVingettes" and initated it with a .gitignore for R
+2. After doing the set up on GitHub online, I then cloned the repository by copying the https link and set up a new RStudio Git version controlled project called "LabVingettes". A key piece here, when I did this, I actually put the project into a "GitHub" folder that I created within my personal ("Andrew Allyn") folder on Box. Moving forward, once we have the lab folder on Box, I'd imagine that this process would actually be done within a project folder in the lab folder on Box. 
+3. After setting up this RProject, it creates a LabVingettes folder in the GitHub folder and inside the LabVingettes folder are a couple files as well as the LabVingettes.RProj file.
+4. Within the LabVingettes folder, I added three new folders: Code, Data, Temp Results. I then also opened and edited the .gitignore file to ignore the Data and Temp Results folders. 
+5. I wrote a RMarkdown document which uses data from the LabVingettes project as well as data and functions from the ExampleShared folders.
+6. After completing an example RMarkdown document, I staged, committed and pushed the RMarkdown code to GitHub.
+7. I opened a new script to render the RMarkdown document as this was the only way I could think of to save the rendered document into a new folder (Temp Results), while keeping the RMarkdown code in the Code folder.
+8. I staged, committed and pushed the render code to GitHub
+9. I ran the render code and looked in the Temp Results file to see the out -- an html file build from the RMarkdown document and a .jpg plot.
 
 ## Start data exploration
 A few preliminary things to start. First, we are going to source some functions that are in the ExampleSharedFunctions and some data in the ExampleSharedData folder. Importantly, this folder is currenty in my personal directory **and for now, you will need to update the "user name" in the code chunk below**. The idea would be that these folders would exist in the Research folder (e.g., Box-Research-Data or Box-Research-Functions). Given that, only the very beginning of the file path should change depending on the operating system. I imagine this would need to be at the beginning of all codes? *Is there a better way to do this??*
@@ -112,4 +114,15 @@ ggsave(here("Temp Results", "ExampleCodCOGPlot.jpg"), cod.cog.plot)
 cod.cog.plot
 ```
 
-Let's see how that all worked (or didn't...)
+## Work flow steps -- someone else's project
+A quick status update on what this has allowed us to do. We now have:
+- version controlled, open source coding (using Git/GitHub) using RStudio projects
+- code that is backed up and synced with Box
+- code that reads in data and sources functions from shared file folders on Box
+- analysis workflows that can deployed across different users and operating systems given only minor adjustments to two lines of the code
+
+The last major hurdle seems to be dealing with sharing these analysis workflows or a situation where a lab member leaves the lab. In the past, this has been a bit of a nightmare and usually includes some crazy long word document outlining where the different scripts/data/results are located. Inevitably, the code also requires extensive modification for someone else to use. So, how do we get around that?
+
+I think, with the current set up we should be able to also overcome this hurdle. The key piece, though, is that when a new GitHub repo is cloned to make the RStudio Project, we need to make sure to iniate the project **on Box in the shared lab folder.** If we do this, and make sure to use the path generation lines detailed here to create file paths to any shared folders, and use the here library to source things associated with the project, we should be all set. When a project is completed, or if someone leaves, all of the work (Code, Data, Documents, Figures and Tables) will live in the one project folder on Box, also linked to a GitHub repository. 
+## Remaining questions
+- How does this all work with collaborative coding? Would you create a fork/clone in your own personal file system and then work from there? How much would that screw up the file paths?
