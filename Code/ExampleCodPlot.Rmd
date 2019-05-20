@@ -34,14 +34,15 @@ A few preliminary things to start. First, we are going to source some functions 
 os.use<- .Platform$OS.type
 
 # Set path to shared folders
-user.name<- "Andrew Allyn/" 
-computer.name<- "" # Needed for PC users
-shared.path<- switch(os.use, 
-                     "unix" = paste("~/Box/", user.name, sep = ""),
-                     "windows" = paste("C:/Users/", computer.name, "/Box/", user.name, sep = ""))
+shared.funcs.path<- switch(os.use, 
+                     "unix" = "~/Box/Mills Lab/Functions/",
+                     "windows" = "C:/Box/Mills Lab/Functions/")
+shared.data.path<- switch(os.use, 
+                     "unix" = "~/Box/Data/",
+                     "windows" = "C:/Box/Data/")
 
 # Source functions -- this is a little clumsy with the output text, but works
-shared.funcs<- list.files(paste(shared.path, "ExampleSharedFunctions", sep = ""), full.names = TRUE)
+shared.funcs<- list.files(shared.funcs.path, full.names = TRUE)
 sapply(shared.funcs, source)
 
 # Load libraries
@@ -57,7 +58,7 @@ summary(cod.dat)
 
 # Let's also read in the NELME shapefile, which is located in a different folder
 # Option one...
-nelme<- st_read(paste(shared.path, "ExampleSharedData/Shapefiles/NELME_sf.shp", sep = ""))
+nelme<- st_read(paste(shared.data.path, "Shapefiles/NELME_sf.shp", sep = ""))
 ggplot() +
   geom_sf(data = st_simplify(nelme, dTolerance = 0.001))
 
