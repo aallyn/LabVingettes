@@ -1,0 +1,206 @@
+---
+title: "ExampleParallelProcessing"
+author: "Andrew Allyn"
+date: "6/3/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+Something about the amount of data and the amount of computing power and how that means we can get a whole lot done -- faster. 
+
+```{r, echo = FALSE, message = FALSE}
+# Detect the operating system
+os.use<- .Platform$OS.type
+
+# Set path to shared folders
+shared.funcs.path<- switch(os.use, 
+                           "unix" = "~/Box/Mills Lab/Functions/",
+                           "windows" = "C:/Box/Mills Lab/Functions/")
+shared.data.path<- switch(os.use, 
+                          "unix" = "~/Box/Data/",
+                          "windows" = "C:/Box/Data/")
+
+# Source functions -- this is a little clumsy with the output text, but works (breaks at Anomaly Function.R)
+#shared.funcs<- list.files(shared.funcs.path, full.names = TRUE)
+#sapply(shared.funcs, source)
+
+library_check<- function(libraries) {
+  ## Details
+  # This function will check for and then either load or install any libraries needed to run subsequent functions
+  
+  # Args:
+  # libraries = Vector of required library names
+  
+  # Returns: NA, just downloads/loads libraries into current work space.
+  
+  ## Start function
+  lapply(libraries, FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  })
+  ## End function
+}
+
+# Load libraries
+libraries.needed<- c("mgcv", "tidyverse", "here", "doParallel", "future", "furrr", "broom", "future.apply")
+library_check(libraries.needed)
+```
+
+## A few motivating examples...
+### Example 1: Perform the same operation over different subsets of the data. 
+First, some data prep to create this type of situation.
+```{r, echo=FALSE}
+# Reading in cod data 
+cod.dat<- read_csv(here("Data", "NOAANEFSCBottomTrawl_CodObs.csv"))
+summary(cod.dat)
+
+# Create a time period variable. We would then be interested in fitting a model to each time period, independently. 
+splits<- c(1980, 1998, 2004, 2018)
+cod.dat$TIME_PERIOD<- cut(cod.dat$EST_YEAR, splits)
+```
+
+Next, let's do this just as a simple, sequential loop.
+```{r, echo = FALSE}
+# Create some results storage objects
+res.tidy<- vector("list", length(unique(cod.dat$TIME_PERIOD))) # Model parameter estimate results
+names(res.tidy)<- c("Early", "Mid", "Late")
+res.glance<- vector("list", length(unique(cod.dat$TIME_PERIOD))) # Model evaluation results
+names(res.glance)<- c("Early", "Mid", "Late")
+
+# Loop over each time period
+time.start<- Sys.time()
+for(i in seq_along(unique(cod.dat$TIME_PERIOD))){
+  # Subset the data
+  dat.temp<- cod.dat %>%
+    filter(., TIME_PERIOD == unique(cod.dat$TIME_PERIOD)[i]) %>%
+    drop_na(BIOMASS.MOD, AVGDEPTH, BOTTEMP)
+  
+  # Fit the model
+  mod.temp<- gam(BIOMASS.MOD ~ s(AVGDEPTH) + s(BOTTEMP), family = gaussian(), data = dat.temp)
+  
+  # Model results
+  res.tidy[[i]]<- broom::tidy(mod.temp)
+  res.glance[[i]]<- broom::glance(mod.temp)
+  
+  # Update
+  print(paste(unique(cod.dat$TIME_PERIOD)[i], " is done!", sep = ""))
+}
+
+time.loop<- Sys.time() - time.start
+```
+
+One alternative, nest the data and map a model function to the nested dataset. This is basically a wrapper around lapply...
+```{r}
+# Create a nested dataframe
+cod.nest<- cod.dat %>%
+  group_by(., TIME_PERIOD) %>%
+  nest(., .key = "Mod.Data")
+
+# Model function -- write it based on what happens within the loop...
+gam_nest_func<- function(df) {
+  # Dataset prep -- note, no filter as the dataframes we are passing have already been "filtered"
+  dat.temp<- df %>%
+    drop_na(BIOMASS.MOD, AVGDEPTH, BOTTEMP)
+  
+  # Fit the model
+  mod.temp<- gam(BIOMASS.MOD ~ s(AVGDEPTH) + s(BOTTEMP), family = gaussian(), data = dat.temp)
+  
+  # Return it 
+  return(mod.temp)
+}
+
+# Now, apply the model fit function, and then also add columns for the tidy and glance model results
+time.start<- Sys.time()
+cod.mapped<- cod.nest %>%
+  mutate("Mod.Fitted" = purrr::map(Mod.Data, possibly(gam_nest_func, NA)),
+         "Res.Tidy" = purrr::map(Mod.Fitted, broom::tidy),
+         "Res.Glance" = purrr::map(Mod.Fitted, broom::glance))
+
+time.nest<- Sys.time() - time.start
+```
+
+We got a bit of a speed up just using the "map" approach instead of the traditional loop. Along with map, which takes in one argument, there is map2 for functions with two arguments and pmap. These "map" extensions can take on any number of arguments. Along with being slightly faster, this "tidy" data structure is really nice to work with.
+
+While we were able to speed things up a bit, R is only using one core when running these processes. Most modern machines, though, have more computing power available. For instance, my mac has 4 cores. Since our analysis is a parallel process (repeated operations and only thing that is changing is the input data), we might think about how to use more of these availabile cores to complete the analysis in parallel?
+
+There are many different ways to do this (just google Parallel processing in R). Let's give the foreach and dopar one a shot...
+```{r}
+# How many cores are available? Save two for other things...
+cores.avail<- availableCores()
+cores.use<- cores.avail - 2
+
+# Make and register the cluster
+clust<- makeCluster(cores.use)
+registerDoParallel(clust)
+
+# Alright, need to adapt the modeling function...
+gam_fit_parallel_func<- function(i, df, time.periods){
+  time.use<- time.periods[i]
+  
+  df.temp<- df %>%
+    filter(., TIME_PERIOD == time.use) %>%
+    drop_na(BIOMASS.MOD, AVGDEPTH, BOTTEMP)
+  
+  # Fit the model
+  mod.temp<- gam(BIOMASS.MOD ~ s(AVGDEPTH) + s(BOTTEMP), family = gaussian(), data = dat.temp)
+  
+  # Model results
+  res.tidy<- broom::tidy(mod.temp)
+  res.glance<- broom::glance(mod.temp)
+  
+  # Package it up and return all the results
+  res.out<- list("Mod.Fit" = mod.temp, "Res.Tidy" = res.tidy, "Res.Glance" = res.glance)
+  return(res.out)
+  
+}
+
+# Time periods vector
+time.periods<- unique(cod.dat$TIME_PERIOD)
+
+# Now, execute function in parallel
+time.start<- Sys.time()
+gam.results <- foreach(i=1:length(time.periods), .packages = libraries.needed, .combine='list') %dopar% {
+        gam_fit_parallel_func(i, df = cod.dat, time.periods = time.periods)
+}
+
+#  Stop the cluster
+stopCluster(clust)
+
+time.parallel<- Sys.time() - time.start
+```
+
+That's a bit messy. What about the "newer" future library and the future_map functions. I think this is basically what we did with the nesting, but now in parallel?
+```{r}
+# How many cores are available? Save two for other things...
+cores.avail<- availableCores()
+cores.use<- cores.avail - 2
+
+# Plan the session
+plan(strategy = "multisession", workers = cores.use)
+
+# Run the function
+time.start<- Sys.time()
+cod.futmapped<- cod.nest %>%
+  mutate(., "Mod.Fit" = future_map(Mod.Data, gam_nest_func))
+
+time.futmap<- Sys.time() - time.start
+```
+
+Still, limited our individual computing power. What if we...**go to the cloud!!**
+
+Google Engine....
+https://cran.r-project.org/web/packages/googleComputeEngineR/index.html
+https://cloudyr.github.io/googleComputeEngineR/articles/massive-parallel.html
+https://www.jottr.org/presentations/satRdayParis2019/BengtssonH_20190223-SatRdayParis2019.pdf
+
+Amazon Web Services
+https://www.r-bloggers.com/interacting-with-aws-from-r/
+
+
+
