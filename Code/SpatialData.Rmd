@@ -15,7 +15,8 @@ This is a *really* short example of a few things you can do with spatial data us
 * Reading in spatial data
 * Subsetting spatial data
 * Making maps
-* Basic spatial data operations (points in polygons, distances between spatial features, extracting spatial data at sample point locations)
+* Basic spatial data operations (points in polygons, distances between spatial features)
+* Slightly more advanced data operations (extracting spatial data at sample point locations, extracting time series spatial data at sample point locations)
 
 For more detailed guides, check out the following links:
 
@@ -24,13 +25,11 @@ For more detailed guides, check out the following links:
 
 ## Spatial data manipulation and basic operations
 ### Before we get rolling...
-You will need a few different libraries to run everything, including: raster, tidyverse, sf, and viridis. I *think* that we should be able to download (if needed) and load these just by running the following chuck. If you run into issues, though, feel free to adapt this document and download/install libraries as you normally would.
+You will need a few different libraries to run everything, including: raster, tidyverse, sf, and viridis. I *think* that we should be able to download (if needed) and load these just by running the following chunk. If you run into issues, though, feel free to adapt this document and download/install libraries as you normally would.
 ```{r, results = "hide"}
-source("https://raw.githubusercontent.com/GMRI-SEL/LabFunctionsandCode/master/GenerateSharedPathsScript.R")
-
 # Source "library_check" helper function to install/load required libraries
-source(paste(lab.func.path, "GeneralHelpers.R", sep = ""))
-library_check(c("raster", "tidyverse", "sf", "viridis", "here"))
+source("https://raw.githubusercontent.com/GMRI-SEL/LabFunctionsandCode/master/LibraryCheck.R")
+library_check(c("raster", "tidyverse", "lubridate", "sf", "viridis"))
 ```
 
 ### Loading in a spatial dataset that is in "shapefile" format, examining it, and making a map
@@ -48,7 +47,7 @@ Generally, we are dealing with either a geographic CRS or a projected CRS. One o
 I mention this CRS business just to highlight two things:
 
 1. To display information on a map from two different data sources, OR, to use two (or more) data sources in a function, **they need to have the same CRS!** 
-2. When working with distances, it is usually better to calculate distances using data in a projected CRS than in a geographic CRS. *In the distance calculation below, I didn't do this*
+2. When working with distances, it is usually better to calculate distances using data in a projected CRS than in a geographic CRS. *Note, I didn't do this for the quick example here!*
 
 ```{r}
 # Checking the CRS of a spatial object
@@ -88,9 +87,9 @@ nc.map2
 ```
 
 ### Spatial data operations
-A lot of the spatial data I deal with (and I think most folks deal with on a regular basis) consists of spatial point location data. Given these data, we are usually interested in figuring out where certain points occur (point in polygons), how far points are from another spatial feature of interest (point to feature distances), and extracting information about the point location using outside data sources. Though this seems to be the operations I repeat over and over again, there are many, many more possibilities. And, they've likely already been implemented by someone else. So, always check in with google first.
+A lot of the spatial data I deal with (and I think most folks deal with on a regular basis) consists of spatial point location data. Given these data, we are usually interested in figuring out where certain points occur (point in polygons), how far points are from another spatial feature of interest (point to feature distances), and then some slightly more advanced data analysis where we are extracting information about the point location using outside data sources. Though these seem to be the operations I repeat over and over again, there are many, many more possibilities. And, they've likely already been implemented by someone else. So, always check in with google first.
 
-To demonstrate these basic operations, we will first create some spatial points.
+To demonstrate these operations, we will first create some spatial points.
 ```{r}
 ## Creating some sample points within a region
 samp.pts<- st_sample(nc, size = 400, type = "random")
@@ -101,6 +100,7 @@ nc.map3<- nc.map2 +
 nc.map3
 ```
 
+#### Spatial data operations: point in polygon, distances
 Now that we have some example sample locations. We can explore some basic operations -- point in polygon, and distances between spatial feature objects.
 ```{r}
 ## Determining which county each point falls into. I have no clue why you need the st_sf other than it is changing class(samp.pts) from sfc_POINT to "sf"
@@ -154,21 +154,26 @@ nc.capmap2
 
 Along with st_within there is also st_intersects, st_crosses, st_contains, st_touches, st_is_within_distance, etc. Just have a look at ?st_within for more ideas.
 
-Finally, extracting variable information from another data source (in this case a spatial surface or raster) at the sample point locations. 
+
+#### Spatial data operations: extracting information at point locations from outside data sources part 1 - no temporal component
+Progressing a bit more, we can also extract variable information from another data source (in this case a spatial surface or raster) at the sample point locations. 
 ```{r}
 ## Need some type of raster data or something to extract from. Raster library has some data availabile (climate, elevation, etc) at a few different resolutions
-clim.rast<- getData("worldclim", var = "tmean", res = 10, path = here("Data"))
+clim.rast<- getData("worldclim", var = "tmean", res = 10)
 #str(clim.rast) # Not helpful
 print(clim.rast) # That's better
 plot(clim.rast)
+st_crs(clim.rast)
+
+# Make the raster data line up with the points data -- takes a minute
+clim.rast<- projectRaster(clim.rast, crs = st_crs(pts.county)$proj4string)
+
+# Temps are Deg C*10 apparently?
+clim.rast<- clim.rast/10
 
 # Get annual average mean temp
 temp.avg<- mean(clim.rast)
 plot(temp.avg)
-
-# Temps are Deg C*10?
-temp.avg2<- temp.avg/10
-plot(temp.avg2)
 
 # Alright, that will work. 
 # A lot of data...focus on what we want?
@@ -210,9 +215,64 @@ pts.county<- pts.county %>%
   mutate("AIRTEMP" = raster::extract(x = nc.temp2, y = .))
 
 # Did it work?
-summary(pts.county$AIRTEMP)
+summary(pts.county$AIRTEMP.ANNUAL)
 ```
 
-The end, for now...
 
+#### Spatial data operations: extracting information at point locations from outside data sources part 2 - temporal component present
+Finally, we might be interested in extracting spatial data, which are collected over time, from outside data sources, which also have a temporal component. For example, above we took the average of the mean temperature across the year. However, we might actually have point data measured at a monthly scale and want to match that up with the monthly mean temperatures. 
 
+To demonstrate this, we will first rename our "clim.rast" with months instead of tmean1, tmean2, etc. Then we will add a time component to our pts.county spatial points data set.
+```{r}
+# Pretending like this is mean monthly temperature data from 2009
+clim.rast.ts<- clim.rast
+names(clim.rast.ts)<- seq(ymd("2009-01-01"), ymd("2009-12-01"), by = "month")
+
+# Now, let's add random months to each of the spatial points
+dates.sampled<- sample(seq(ymd("2009-01-01"), ymd("2009-12-01"), by = "month"), size = nrow(pts.county), replace = TRUE)
+pts.county$DATE<- dates.sampled
+```
+
+Alright, we now have a time series of temperature and a time series of sample points and we'd like to match these things up -- in other words, we want to get the temperature for January for the points sampled in January. There are a couple ways of doing this. One option, and the fastest I have found, is we first extract the time series temperature data for all months at each of the points and then do some indexing to get what we want.
+```{r}
+# Extracting information from the raster stack (time series of temperature data) at each location
+pts.temp.ts<- raster::extract(x = clim.rast.ts, y = pts.county)
+str(pts.temp.ts)
+```
+
+What did that do? We calculated the temperature, for every month (layers in the time series), at every single point. This process returns a matrix, where each row is a point and each column is a month of 2009. So, we are about half way there. Really we only want the monthly temperature that MATCHES the month our sample point was collected though.
+```{r}
+# First, using the points data make a vector that has the same structure as the dates of the raster stack time series, which means replacing "-" with periods and adding an "X" to beginning of the date.
+pts.match.vector<- gsub("-", ".", paste("X", pts.county$DATE, sep = ""))
+
+# Now, match that up with the names of the raster stack time series. This is giving us the column of the matrix calculated above that we want to keep for each of our points
+match.col.index<- match(pts.match.vector, names(clim.rast.ts))
+
+# We also want to have the row for the matrix that we want, which is easy as the rows are consistent.
+match.row.index<- seq(from = 1, to = nrow(pts.county), by = 1)
+
+# Great, now we can combine the matching column and rows. Think of this kind of like battleship, where the resulting column/row matching indices are going to extract a specific cell of information from the full matrix of temperature data, which consists of ALL points and ALL times, and is in the pts.temp.ts object
+match.df.index<- cbind(match.row.index, match.col.index)
+
+# Use the row/column matching indexes to grab just the matching temperature based on the month the sample point was collected
+pts.county$AIRTEMP.MONTHLY<- pts.temp.ts[match.df.index]
+
+# Did it work?
+# Grab a single point (you can adjust row.check)
+row.check<- 10
+pt.check<- pts.county[row.check,]
+pt.check$DATE
+
+# Grab the matching layer of the raster time series 
+rast.check.ind<- as.numeric(format(pt.check$DATE, "%m"))
+rast.check<- clim.rast.ts[[rast.check.ind]]
+
+# Extract
+pt.check.temp<- raster::extract(rast.check, pt.check)
+pt.check.temp == pts.county$AIRTEMP.MONTHLY[[row.check]]
+
+# Looks good.
+summary(pts.county$AIRTEMP.MONTHLY)
+```
+
+## The end for now...
